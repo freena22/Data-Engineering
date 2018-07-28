@@ -184,7 +184,153 @@ conn.commit()
 
 
 
+################# Alter Table #################
+
+# 1. Renaming Table Name
+
+conn = psycopg2.connect("dbname=dq user=dq")
+cur = conn.cursor()
+cur.execute('ALTER TABLE old_ign_reviews RENAME TO ign_reviews')
+conn.commit()
+
+# 2. Removing a Column
+
+cur.execute('ALTER TABLE ign_reviews DROP COLUMN full_url')
+conn.commit()
+
+# 3. Changing a Column Datatype
+
+cur.execute('ALTER TABLE ign_reviews ALTER COLUMN id TYPE BIGINT')
+conn.commit()
+
+# 4. Renaming Columns
+
+cur.execute('ALTER TABLE ign_reviews RENAME COLUMN title_of_game_review TO title')
+conn.commit()
+
+# 5. Adding a Column
+
+cur.execute('ALTER TABLE ign_reviews ADD COLUMN release_date DATE')
+conn.commit()
 
 
+# 6. Set Values
 
+# default each entry to Jan 1st, 1991
+cur.execute("ALTER TABLE ign_reviews ADD COLUMN release_date DATE DEFAULT 01-01-1991")
+# filter and categole
+cur.execute("UPDATE ign_reviews SET editors_choice = 'F' WHERE id > 5000")
+# 6. Update the Release Date
+
+conn = psycopg2.connect("dbname=dq user=dq")
+cur = conn.cursor()
+# inserrt the combination of the columns || as concat
+cur.execute("UPDATE ign_reviews SET release_date = to_date(release_day || '-' || release_month || '-' || release_year, 'DD-MM-YYYY')")
+conn.commit()
+
+# Drop the redundant columns
+cur = conn.cursor()
+cur.execute("ALTER TABLE ign_reviews DROP COLUMN release_day")
+cur.execute("ALTER TABLE ign_reviews DROP COLUMN release_month")
+cur.execute("ALTER TABLE ign_reviews DROP COLUMN release_year")
+
+
+################# Loading and Extracting Data #################
+
+# 1. Three Methods Which is the fastest?
+
+import time
+
+conn = psycopg2.connect("dbname=dq user=dq")
+cur = conn.cursor()
+
+# Multiple single insert statements
+
+start = time.time()
+with open('ign.csv', 'r') as f:
+    next(f)
+    reader = csv.reader(f)
+    for row in reader:
+        cur.execute(
+            "INSERT INTO ign_reviews VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            row
+        )
+conn.rollback()
+
+print("Single statment insert: ", time.time() - start)
+        
+# Multiple mogrify insert
+
+start = time.time()
+with open('ign.csv', 'r') as f:
+    next(f)
+    reader = csv.reader(f)
+    mogrified = [ 
+        cur.mogrify("(%s, %s, %s, %s, %s, %s, %s, %s, %s)", row).decode('utf-8')
+        for row in reader] 
+
+    mogrified_values = ",".join(mogrified) 
+    cur.execute('INSERT INTO ign_reviews VALUES ' + mogrified_values)
+conn.rollback()
+        
+print("Multiple mogrify insert: ", time.time() - start)
+
+
+# Copy expert method
+
+start = time.time()
+with open('ign.csv', 'r') as f:
+    cur.copy_expert('COPY ign_reviews FROM STDIN WITH CSV HEADER', f)
+conn.rollback()
+print("Copy expert method: ", time.time() - start)
+
+""" Output
+
+Single statment insert:  2.5252981185913086
+Multiple mogrify insert:  1.0149483680725098
+Copy expert method:  0.15618491172790527
+
+"""
+
+conn = psycopg2.connect("dbname=dq user=dq")
+cur = conn.cursor()
+with open('old_ign_reviews.csv', 'w') as f:
+    cur.copy_expert('COPY old_ign_reviews TO STDOUT WITH CSV HEADER', f)
+
+# 2. Transform an Old Table to a New Table
+
+import csv
+from datetime import date
+
+
+conn = psycopg2.connect("dbname=dq user=dq")
+cur = conn.cursor()
+with open('old_ign_reviews.csv', 'r+') as f:
+    cur.copy_expert('COPY old_ign_reviews TO STDOUT WITH CSV HEADER', f)
+    f.seek(0)
+    reader = csv.reader(f)
+    next(reader)
+    for row in reader:
+        updated_row = row[:8]
+        updated_row.append(date(int(row[8]), int(row[9]), int(row[10])))
+        cur.execute("INSERT INTO ign_reviews VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)", updated_row)
+    conn.commit()
+
+# copy_expert() method is great for tables that contain less than a million rows 
+# As the table size increases, it requires even more memory and disk space to load and store these files.
+# USE JUST SQL to do it!
+
+conn = psycopg2.connect("dbname=dq user=dq")
+cur = conn.cursor()
+cur.execute("""
+INSERT INTO ign_reviews (
+    id, score_phrase, title, url, platform, score,
+    genre, editors_choice, release_date
+)
+SELECT id, score_phrase, title_of_game_review as title,
+    url, platform, score, genre, editors_choice,
+    to_date(release_day || '-' || release_month || '-' || release_year, 'DD-MM-YYYY') as release_date
+FROM old_ign_reviews
+""")
+conn.commit()
 
