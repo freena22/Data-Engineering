@@ -334,3 +334,62 @@ FROM old_ign_reviews
 """)
 conn.commit()
 
+################# User and Database Management #################
+
+
+# 1. Set the User and Password
+
+import psycopg2
+conn = psycopg2.connect(dbname = 'dq', user = 'postgres', password = 'abc123')
+
+# 2. Creating A User
+
+conn = psycopg2.connect(dbname = 'dq', user = 'postgres', password = 'password')
+cur = conn.cursor()
+cur. execute("CREATE USER data_viewer WITH PASSWORD 'somepassword' NOSUPERUSER")
+
+# 3. User Privileges -- Revoke and Grant
+
+cur.execute("REVOKE ALL ON user_accounts FROM data_viewer")
+cur.execute("GRANT SELECT ON user_accounts TO data_viewer")
+
+
+# 4. Postgres Groups
+# Instead of revoking and granting for a single user, you place a user inside a group 
+# and issue the GRANT and REVOKE commands on that group.
+
+conn = psycopg2.connect(dbname="dq", user="dq")
+cur = conn.cursor()
+cur.execute("CREATE GROUP readonly NOLOGIN")
+cur.execute("REVOKE ALL ON user_accounts FROM readonly")
+cur.execute("GRANT SELECT ON user_accounts TO readonly")
+cur.execute("GRANT readonly TO data_viewer")
+conn.commit()
+
+# 5. Creating a Database
+# Create multiple databases
+
+conn = psycopg2.connect(dbname="dq", user="dq")
+# Connection must be set to autocommit.
+conn.autocommit = True
+cur = conn.cursor()
+cur.execute("CREATE DATABASE user_accounts OWNER data_viewer")
+
+# 6. Putting All Together
+
+conn = psycopg2.connect(dbname="dq", user="dq")
+conn.autocommit = True
+cur = conn.cursor()
+cur.execute("CREATE DATABASE top_secret OWNER dq")
+conn = psycopg2.connect(dbname="top_secret", user="dq")
+cur = conn.cursor()
+cur.execute("""
+CREATE TABLE documents(id INT, info TEXT);
+CREATE GROUP spies NOLOGIN;
+REVOKE ALL ON documents FROM spies;
+GRANT SELECT, INSERT, UPDATE ON documents TO spies;
+""")
+conn.commit()
+
+conn_007 = psycopg2.connect(dbname='top_secret', 
+                            user='double_o_7', password='shakennotstirred')
